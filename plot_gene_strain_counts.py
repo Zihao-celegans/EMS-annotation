@@ -26,9 +26,19 @@ CSV_PATH = Path(
     r"\c_elegans.annovar.EMS_annotation.csv"
 )
 OUTPUT_DIR = Path(r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\analysis")
-OUTPUT_PNG = OUTPUT_DIR / "gene_strain_counts.png"
 TOP_N = 10
-TOP_GENES_CSV = OUTPUT_DIR / f"top{TOP_N}_genes_by_strain_count.csv"
+
+# Strain groups by drug screen. Per-screen results are written separately.
+STRAIN_GROUPS: dict[str, list[str]] = {
+    "Kelleher": [
+        "ECA4365", "ECA4366", "ECA4367", "ECA4368", "ECA4369",
+        "ECA4370", "ECA4371", "ECA4372", "ECA4373",
+    ],
+    "ABZ": [
+        "ECA4236", "ECA4237", "ECA4238", "ECA4239", "ECA4240", "ECA4241",
+        "ECA4242", "ECA4243", "ECA4244", "ECA4245", "ECA4246",
+    ],
+}
 
 EXCLUDED_CONSEQUENCES = {"intergenic", "upstream", "downstream"}
 
@@ -50,6 +60,14 @@ def load_annotation(csv_path: str | Path) -> pd.DataFrame:
     return pd.read_csv(csv_path)
 
 
+def infer_species(csv_path: str | Path) -> str:
+    """Infer the species tag from the CSV filename (text before the first '.').
+
+    Example: ``c_elegans.annovar.EMS_annotation.csv`` -> ``c_elegans``.
+    """
+    return Path(csv_path).name.split(".")[0]
+
+
 def filter_variants(df: pd.DataFrame) -> pd.DataFrame:
     """Keep EMS-signature variants with a non-excluded CONSEQUENCE."""
     is_ems = df[POSSIBLE_EMS_COLUMN].astype(str).str.lower() == "yes"
@@ -64,8 +82,15 @@ def _split_strains(cell: object) -> list[str]:
     return [s for s in str(cell).split() if s]
 
 
-def gene_strain_counts(df: pd.DataFrame) -> pd.DataFrame:
+def gene_strain_counts(
+    df: pd.DataFrame,
+    allowed_strains: set[str] | None = None,
+) -> pd.DataFrame:
     """Aggregate per-gene unique strain counts and genome position.
+
+    If ``allowed_strains`` is provided, only those strain IDs are counted, and
+    genes whose qualifying variants belong exclusively to other strains are
+    dropped.
 
     Returns a DataFrame with columns:
         WBGENE, GENE_NAME, CHROM, min_POS, n_strains
@@ -75,7 +100,12 @@ def gene_strain_counts(df: pd.DataFrame) -> pd.DataFrame:
     for wbgene, sub in df.groupby(GENE_COLUMN, dropna=True):
         strains: set[str] = set()
         for cell in sub[STRAIN_COLUMN]:
-            strains.update(_split_strains(cell))
+            for s in _split_strains(cell):
+                if allowed_strains is None or s in allowed_strains:
+                    strains.add(s)
+
+        if not strains:
+            continue
 
         # Pick a representative common name (first non-missing, non-"N/A")
         name_candidates = sub[GENE_NAME_COLUMN].dropna()
@@ -106,7 +136,7 @@ def gene_strain_counts(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def plot_counts(gene_df: pd.DataFrame, output_png: Path) -> None:
+def plot_counts(gene_df: pd.DataFrame, output_png: Path, title_suffix: str = "") -> None:
     """Scatter plot of per-gene strain counts along genome-position-ordered index."""
     x = range(1, len(gene_df) + 1)
     y = gene_df["n_strains"].to_numpy()
@@ -122,10 +152,13 @@ def plot_counts(gene_df: pd.DataFrame, output_png: Path) -> None:
 
     ax.set_xlabel("Gene index (ordered by chromosome, then genome position)")
     ax.set_ylabel("Number of strains carrying ≥1 qualifying EMS variant")
-    ax.set_title(
+    title = (
         f"Per-gene strain counts "
         f"(EMS-signature, excluding {sorted(EXCLUDED_CONSEQUENCES)})"
     )
+    if title_suffix:
+        title = f"{title_suffix} — " + title
+    ax.set_title(title)
 
     handles = [
         plt.Line2D(
@@ -139,26 +172,47 @@ def plot_counts(gene_df: pd.DataFrame, output_png: Path) -> None:
     output_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_png, dpi=200)
     print(f"Saved figure to: {output_png}")
-    plt.show()
+
+
+def run_for_group(
+    filtered: pd.DataFrame,
+    group_name: str,
+    group_strains: list[str],
+    species: str,
+) -> None:
+    print(f"\n=== {species} | {group_name} ({len(group_strains)} strains) ===")
+    allowed = set(group_strains)
+    gene_df = gene_strain_counts(filtered, allowed_strains=allowed)
+    print(f"Genes with ≥1 qualifying variant in this group: {len(gene_df)}")
+
+    top_genes = gene_df.sort_values("n_strains", ascending=False).head(TOP_N)
+    print(f"Top {TOP_N} genes by strain count:")
+    print(top_genes.to_string(index=False))
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    top_csv = (
+        OUTPUT_DIR
+        / f"{species}_top{TOP_N}_genes_by_strain_count_{group_name}.csv"
+    )
+    top_genes.to_csv(top_csv, index=False)
+    print(f"Saved top-{TOP_N} table to: {top_csv}")
+
+    png = OUTPUT_DIR / f"{species}_gene_strain_counts_{group_name}.png"
+    plot_counts(gene_df, png, title_suffix=f"{species} | {group_name}")
 
 
 def main() -> None:
     df = load_annotation(CSV_PATH)
     filtered = filter_variants(df)
+    species = infer_species(CSV_PATH)
+    print(f"Species:               {species}")
     print(f"Total rows:            {len(df)}")
     print(f"After filtering:       {len(filtered)}")
 
-    gene_df = gene_strain_counts(filtered)
-    print(f"Unique genes plotted:  {len(gene_df)}")
-    top_genes = gene_df.sort_values("n_strains", ascending=False).head(TOP_N)
-    print(f"Top {TOP_N} genes by strain count:")
-    print(top_genes.to_string(index=False))
+    for group_name, group_strains in STRAIN_GROUPS.items():
+        run_for_group(filtered, group_name, group_strains, species)
 
-    TOP_GENES_CSV.parent.mkdir(parents=True, exist_ok=True)
-    top_genes.to_csv(TOP_GENES_CSV, index=False)
-    print(f"Saved top-{TOP_N} table to: {TOP_GENES_CSV}")
-
-    plot_counts(gene_df, OUTPUT_PNG)
+    plt.show()
 
 
 if __name__ == "__main__":
