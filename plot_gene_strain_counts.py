@@ -121,6 +121,7 @@ def gene_strain_counts(
                 CHROM_COLUMN: sub[CHROM_COLUMN].iloc[0],
                 "min_POS": int(sub[POS_COLUMN].min()),
                 "n_strains": len(strains),
+                "strains": " ".join(sorted(strains)),
             }
         )
 
@@ -187,7 +188,30 @@ def run_for_group(
 
     top_genes = gene_df.sort_values("n_strains", ascending=False).head(TOP_N)
     print(f"Top {TOP_N} genes by strain count:")
-    print(top_genes.to_string(index=False))
+    print(
+        top_genes.drop(columns="strains").to_string(index=False)
+    )
+    print(f"\nStrains for each of the top {TOP_N} genes:")
+    for _, row in top_genes.iterrows():
+        label = row[GENE_NAME_COLUMN] if row[GENE_NAME_COLUMN] != "N/A" else row[GENE_COLUMN]
+        print(f"  - {label} ({row[GENE_COLUMN]}, n={row['n_strains']}): {row['strains']}")
+
+    print(f"\nVariant details for each of the top {TOP_N} genes:")
+    variant_cols = [
+        CHROM_COLUMN, POS_COLUMN, "REF", "ALT",
+        CONSEQUENCE_COLUMN, "IMPACT", "AA", STRAIN_COLUMN,
+    ]
+    variant_cols = [c for c in variant_cols if c in filtered.columns]
+    for _, row in top_genes.iterrows():
+        label = row[GENE_NAME_COLUMN] if row[GENE_NAME_COLUMN] != "N/A" else row[GENE_COLUMN]
+        gene_rows = filtered.loc[filtered[GENE_COLUMN] == row[GENE_COLUMN], variant_cols]
+        # Keep only variants that hit at least one allowed strain in this group.
+        mask = gene_rows[STRAIN_COLUMN].apply(
+            lambda cell: any(s in allowed for s in _split_strains(cell))
+        )
+        gene_rows = gene_rows.loc[mask].sort_values(POS_COLUMN).reset_index(drop=True)
+        print(f"\n  {label} ({row[GENE_COLUMN]}) — {len(gene_rows)} variant(s):")
+        print(gene_rows.to_string(index=False))
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     top_csv = (
