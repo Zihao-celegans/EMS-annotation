@@ -18,9 +18,11 @@ import pandas as pd
 # --------------------------------------------------------------------------- #
 CSV_PATH = Path(
     r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
-    r"\c_elegans.annovar.EMS_annotation.csv"
+    r"\c_elegans.csq.EMS_annotation.csv"
 )
 STRAIN_COLUMN = "STRAIN"
+CONSEQUENCE_COLUMN = "CONSEQUENCE"
+IMPACT_COLUMN = "IMPACT"
 # --------------------------------------------------------------------------- #
 
 
@@ -51,12 +53,61 @@ def list_unique_strains(df: pd.DataFrame, column: str = STRAIN_COLUMN) -> list[s
     return sorted(set(_iter_strains(df, column)))
 
 
+def count_unique_consequences(
+    df: pd.DataFrame, column: str = CONSEQUENCE_COLUMN
+) -> int:
+    """Return the number of unique CONSEQUENCE categories."""
+    return df[column].nunique(dropna=True)
+
+
+def consequence_counts(
+    df: pd.DataFrame, column: str = CONSEQUENCE_COLUMN
+) -> pd.Series:
+    """Return a Series of variant counts per CONSEQUENCE category (descending)."""
+    return df[column].value_counts(dropna=False)
+
+
+def count_unique_impacts(df: pd.DataFrame, column: str = IMPACT_COLUMN) -> int:
+    """Return the number of unique IMPACT categories (excluding N/A)."""
+    return df[column].replace("N/A", pd.NA).nunique(dropna=True)
+
+
+def impact_counts(df: pd.DataFrame, column: str = IMPACT_COLUMN) -> pd.Series:
+    """Return a Series of variant counts per IMPACT category (descending)."""
+    return df[column].value_counts(dropna=False)
+
+
+def consequence_impact_matrix(
+    df: pd.DataFrame,
+    consequence_column: str = CONSEQUENCE_COLUMN,
+    impact_column: str = IMPACT_COLUMN,
+) -> pd.DataFrame:
+    """Return a CONSEQUENCE x IMPACT count matrix.
+
+    Rows are CONSEQUENCE categories, columns are IMPACT categories, and each
+    cell is the number of variants with that (CONSEQUENCE, IMPACT) pair.
+    Row/column totals are appended as an ``All`` margin.
+    """
+    return pd.crosstab(
+        df[consequence_column],
+        df[impact_column].fillna("N/A"),
+        margins=True,
+        margins_name="All",
+        dropna=False,
+    )
+
+
 def summarize(df: pd.DataFrame) -> dict:
     """Return a small dictionary summary of the dataset."""
     return {
         "n_variants": len(df),
         "n_unique_strains": count_unique_strains(df),
         "strains": list_unique_strains(df),
+        "n_unique_consequences": count_unique_consequences(df),
+        "consequence_counts": consequence_counts(df),
+        "n_unique_impacts": count_unique_impacts(df),
+        "impact_counts": impact_counts(df),
+        "consequence_impact_matrix": consequence_impact_matrix(df),
     }
 
 
@@ -70,6 +121,24 @@ def main() -> None:
     print("Strains:")
     for s in summary["strains"]:
         print(f"  - {s}")
+
+    print(f"Unique consequences: {summary['n_unique_consequences']}")
+    print("Consequence counts:")
+    for cons, n in summary["consequence_counts"].items():
+        print(f"  - {cons}: {n}")
+
+    print(f"Unique impacts (excluding N/A): {summary['n_unique_impacts']}")
+    print("Impact counts:")
+    for imp, n in summary["impact_counts"].items():
+        print(f"  - {imp}: {n}")
+
+    print("CONSEQUENCE x IMPACT matrix:")
+    with pd.option_context(
+        "display.max_rows", None,
+        "display.max_columns", None,
+        "display.width", 200,
+    ):
+        print(summary["consequence_impact_matrix"])
 
 
 if __name__ == "__main__":
