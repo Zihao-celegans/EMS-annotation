@@ -22,10 +22,10 @@ import pandas as pd
 # CONFIG — edit these parameters as needed
 # --------------------------------------------------------------------------- #
 CSV_PATH = Path(
-    r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
+    r"C:\Users\lizih\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
     r"\c_elegans.annovar.EMS_annotation.csv"
 )
-OUTPUT_DIR = Path(r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\analysis")
+OUTPUT_DIR = Path(r"C:\Users\lizih\Dropbox\JHU_2026_spring\EMS_annotation\analysis")
 TOP_N = 10
 
 # Strain groups by drug screen. Per-screen results are written separately.
@@ -40,7 +40,11 @@ STRAIN_GROUPS: dict[str, list[str]] = {
     ],
 }
 
-EXCLUDED_CONSEQUENCES = {"intergenic", "upstream", "downstream"}
+EXCLUDED_CONSEQUENCES = {"intergenic", "upstream", "downstream", "intronic"}
+
+# Drop variants that appear in more than this fraction of strains in EVERY
+# strain group (likely background variants rather than screen-specific hits).
+BACKGROUND_FRAC_THRESHOLD = 0.8
 
 # C. elegans chromosome ordering for x-axis placement
 CHROM_ORDER = ["I", "II", "III", "IV", "V", "X", "MtDNA"]
@@ -80,6 +84,41 @@ def _split_strains(cell: object) -> list[str]:
     if pd.isna(cell):
         return []
     return [s for s in str(cell).split() if s]
+
+
+def drop_background_variants(
+    df: pd.DataFrame,
+    strain_groups: dict[str, list[str]],
+    threshold: float = BACKGROUND_FRAC_THRESHOLD,
+) -> pd.DataFrame:
+    """Remove variants present in > ``threshold`` fraction of strains in EVERY group.
+
+    A variant row is considered background and dropped only if, for each group in
+    ``strain_groups``, the number of group strains carrying it exceeds
+    ``threshold * len(group)``.
+    """
+    if not strain_groups:
+        return df
+
+    group_sets = {name: set(strains) for name, strains in strain_groups.items()}
+    strain_lists = df[STRAIN_COLUMN].apply(_split_strains)
+
+    is_background = pd.Series(True, index=df.index)
+    for name, members in group_sets.items():
+        n_total = len(members)
+        if n_total == 0:
+            is_background[:] = False
+            break
+        cutoff = threshold * n_total
+        n_hit = strain_lists.apply(lambda ss, m=members: sum(1 for s in ss if s in m))
+        is_background &= n_hit > cutoff
+
+    dropped = int(is_background.sum())
+    print(
+        f"Background filter (>{threshold:.0%} of strains in all "
+        f"{len(group_sets)} groups): dropped {dropped} variant row(s)."
+    )
+    return df.loc[~is_background].copy()
 
 
 def gene_strain_counts(
@@ -175,6 +214,26 @@ def plot_counts(gene_df: pd.DataFrame, output_png: Path, title_suffix: str = "")
     print(f"Saved figure to: {output_png}")
 
 
+def _top_genes_with_tie_rule(gene_df: pd.DataFrame, top_n: int) -> pd.DataFrame:
+    """Select top genes by ``n_strains``, handling ties as a block.
+
+    Walk tiers of equal ``n_strains`` from highest to lowest. Include a full tier
+    only if doing so keeps the running total ≤ ``top_n``; otherwise stop and drop
+    that tier entirely. Within each included tier, the input order of
+    ``gene_df`` is preserved (genome position).
+    """
+    ranked = gene_df.sort_values("n_strains", ascending=False, kind="mergesort")
+    selected_idx: list = []
+    running = 0
+    for _, tier in ranked.groupby("n_strains", sort=False):
+        tier_size = len(tier)
+        if running + tier_size > top_n:
+            break
+        selected_idx.extend(tier.index.tolist())
+        running += tier_size
+    return ranked.loc[selected_idx]
+
+
 def run_for_group(
     filtered: pd.DataFrame,
     group_name: str,
@@ -186,8 +245,8 @@ def run_for_group(
     gene_df = gene_strain_counts(filtered, allowed_strains=allowed)
     print(f"Genes with ≥1 qualifying variant in this group: {len(gene_df)}")
 
-    top_genes = gene_df.sort_values("n_strains", ascending=False).head(TOP_N)
-    print(f"Top {TOP_N} genes by strain count:")
+    top_genes = _top_genes_with_tie_rule(gene_df, TOP_N)
+    print(f"Top {TOP_N} genes by strain count (tie-inclusive, n={len(top_genes)}):")
     print(
         top_genes.drop(columns="strains").to_string(index=False)
     )
@@ -232,6 +291,9 @@ def main() -> None:
     print(f"Species:               {species}")
     print(f"Total rows:            {len(df)}")
     print(f"After filtering:       {len(filtered)}")
+
+    filtered = drop_background_variants(filtered, STRAIN_GROUPS)
+    print(f"After background drop: {len(filtered)}")
 
     for group_name, group_strains in STRAIN_GROUPS.items():
         run_for_group(filtered, group_name, group_strains, species)
