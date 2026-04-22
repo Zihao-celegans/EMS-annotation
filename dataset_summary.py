@@ -20,7 +20,7 @@ import pandas as pd
 # --------------------------------------------------------------------------- #
 CSV_PATH = Path(
     r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
-    r"\c_elegans.csq.EMS_annotation.csv"
+    r"\c_elegans.vep.EMS_annotation.csv"
 )
 STRAIN_COLUMN = "STRAIN"
 CONSEQUENCE_COLUMN = "CONSEQUENCE"

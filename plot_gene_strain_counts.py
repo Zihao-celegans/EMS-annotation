@@ -24,7 +24,7 @@ import pandas as pd
 # --------------------------------------------------------------------------- #
 # Select which annotation tool's output to analyze. The per-tool settings below
 # (CSV path + excluded CONSEQUENCE categories) are chosen based on this value.
-ANNOTATION_TOOL = "csq"  # one of: "annovar", "csq"
+ANNOTATION_TOOL = "csq"  # one of: "annovar", "csq", "vep"
 
 # --- Tool-specific parameter blocks ---------------------------------------- #
 # Each block only overrides parameters that differ between tools; shared
@@ -51,6 +51,29 @@ TOOL_CONFIGS: dict[str, dict] = {
         # labels, and adds UTR and "non_coding" categories.
         "EXCLUDED_CONSEQUENCES": {
             "nan", "intron", "non_coding", "@13746900",
+        },
+    },
+    "vep": {
+        "CSV_PATH": Path(
+            r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets"
+            r"\c_elegans\c_elegans.vep.EMS_annotation.csv"
+        ),
+        # Ensembl VEP CONSEQUENCE vocabulary (SO terms, "_variant" suffixed).
+        # Exclude intergenic, up/downstream, intronic, UTR, and non-coding
+        # transcript categories (including composite labels joined by '&').
+        "EXCLUDED_CONSEQUENCES": {
+            "intergenic_variant",
+            "upstream_gene_variant",
+            "downstream_gene_variant",
+            "intron_variant",
+            "intron_variant&non_coding_transcript_variant",
+            "splice_polypyrimidine_tract_variant&intron_variant",
+            "splice_region_variant&intron_variant",
+            "splice_donor_region_variant&intron_variant",
+            "splice_donor_5th_base_variant&intron_variant",
+            "non_coding_transcript_exon_variant",
+            "splice_region_variant&non_coding_transcript_exon_variant",
+            "splice_donor_region_variant&non_coding_transcript_exon_variant",
         },
     },
 }
