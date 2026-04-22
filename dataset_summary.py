@@ -4,7 +4,9 @@ Edit the parameters in the CONFIG section below and run:
 
     python dataset_summary.py
 
-Additional summary functions can be added to this module over time.
+The script tolerates annotation files that do not contain an ``IMPACT``
+column (e.g. the ``csq`` output), in which case impact-related summaries
+are skipped.
 """
 
 from __future__ import annotations
@@ -98,17 +100,24 @@ def consequence_impact_matrix(
 
 
 def summarize(df: pd.DataFrame) -> dict:
-    """Return a small dictionary summary of the dataset."""
-    return {
+    """Return a small dictionary summary of the dataset.
+
+    Impact-related entries are only included when the ``IMPACT`` column is
+    present in the DataFrame.
+    """
+    summary: dict = {
         "n_variants": len(df),
         "n_unique_strains": count_unique_strains(df),
         "strains": list_unique_strains(df),
         "n_unique_consequences": count_unique_consequences(df),
         "consequence_counts": consequence_counts(df),
-        "n_unique_impacts": count_unique_impacts(df),
-        "impact_counts": impact_counts(df),
-        "consequence_impact_matrix": consequence_impact_matrix(df),
+        "has_impact": IMPACT_COLUMN in df.columns,
     }
+    if summary["has_impact"]:
+        summary["n_unique_impacts"] = count_unique_impacts(df)
+        summary["impact_counts"] = impact_counts(df)
+        summary["consequence_impact_matrix"] = consequence_impact_matrix(df)
+    return summary
 
 
 def main() -> None:
@@ -127,18 +136,23 @@ def main() -> None:
     for cons, n in summary["consequence_counts"].items():
         print(f"  - {cons}: {n}")
 
-    print(f"Unique impacts (excluding N/A): {summary['n_unique_impacts']}")
-    print("Impact counts:")
-    for imp, n in summary["impact_counts"].items():
-        print(f"  - {imp}: {n}")
+    if summary["has_impact"]:
+        print(f"Unique impacts (excluding N/A): {summary['n_unique_impacts']}")
+        print("Impact counts:")
+        for imp, n in summary["impact_counts"].items():
+            print(f"  - {imp}: {n}")
 
-    print("CONSEQUENCE x IMPACT matrix:")
-    with pd.option_context(
-        "display.max_rows", None,
-        "display.max_columns", None,
-        "display.width", 200,
-    ):
-        print(summary["consequence_impact_matrix"])
+        print("CONSEQUENCE x IMPACT matrix:")
+        with pd.option_context(
+            "display.max_rows", None,
+            "display.max_columns", None,
+            "display.width", 200,
+        ):
+            print(summary["consequence_impact_matrix"])
+    else:
+        print(
+            f"(No '{IMPACT_COLUMN}' column found — skipping impact summaries.)"
+        )
 
 
 if __name__ == "__main__":
