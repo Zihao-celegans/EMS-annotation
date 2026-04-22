@@ -22,10 +22,10 @@ import pandas as pd
 # CONFIG — edit these parameters as needed
 # --------------------------------------------------------------------------- #
 CSV_PATH = Path(
-    r"C:\Users\lizih\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
+    r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
     r"\c_elegans.annovar.EMS_annotation.csv"
 )
-OUTPUT_DIR = Path(r"C:\Users\lizih\Dropbox\JHU_2026_spring\EMS_annotation\analysis")
+OUTPUT_DIR = Path(r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\analysis")
 TOP_N = 10
 
 # Strain groups by drug screen. Per-screen results are written separately.
