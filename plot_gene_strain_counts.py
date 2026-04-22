@@ -13,6 +13,7 @@ Edit the parameters in the CONFIG section below and run:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -21,10 +22,40 @@ import pandas as pd
 # --------------------------------------------------------------------------- #
 # CONFIG — edit these parameters as needed
 # --------------------------------------------------------------------------- #
-CSV_PATH = Path(
-    r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
-    r"\c_elegans.annovar.EMS_annotation.csv"
-)
+# Select which annotation tool's output to analyze. The per-tool settings below
+# (CSV path + excluded CONSEQUENCE categories) are chosen based on this value.
+ANNOTATION_TOOL = "csq"  # one of: "annovar", "csq"
+
+# --- Tool-specific parameter blocks ---------------------------------------- #
+# Each block only overrides parameters that differ between tools; shared
+# parameters (strain groups, TOP_N, chromosome order, column names, etc.) are
+# defined once below.
+TOOL_CONFIGS: dict[str, dict] = {
+    "annovar": {
+        "CSV_PATH": Path(
+            r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets"
+            r"\c_elegans\c_elegans.annovar.EMS_annotation.csv"
+        ),
+        # ANNOVAR CONSEQUENCE vocabulary: exclude non-coding / regulatory.
+        "EXCLUDED_CONSEQUENCES": {
+            "intergenic", "upstream", "downstream", "intronic",
+        },
+    },
+    "csq": {
+        "CSV_PATH": Path(
+            r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets"
+            r"\c_elegans\c_elegans.csq.EMS_annotation.csv"
+        ),
+        # bcftools/csq CONSEQUENCE vocabulary: exclude non-coding / UTR / intronic.
+        # Note: csq uses "intron" (no "ic"), has no "intergenic/upstream/downstream"
+        # labels, and adds UTR and "non_coding" categories.
+        "EXCLUDED_CONSEQUENCES": {
+            "nan", "intron", "non_coding", "@13746900",
+        },
+    },
+}
+
+# --- Shared parameters ----------------------------------------------------- #
 OUTPUT_DIR = Path(r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\analysis")
 TOP_N = 10
 
@@ -40,8 +71,6 @@ STRAIN_GROUPS: dict[str, list[str]] = {
     ],
 }
 
-EXCLUDED_CONSEQUENCES = {"intergenic", "upstream", "downstream", "intronic"}
-
 # Drop variants that appear in more than this fraction of strains in EVERY
 # strain group (likely background variants rather than screen-specific hits).
 BACKGROUND_FRAC_THRESHOLD = 0.8
@@ -56,6 +85,15 @@ CONSEQUENCE_COLUMN = "CONSEQUENCE"
 CHROM_COLUMN = "CHROM"
 POS_COLUMN = "POS"
 POSSIBLE_EMS_COLUMN = "possible_EMS"
+
+# Resolve active tool-specific settings.
+if ANNOTATION_TOOL not in TOOL_CONFIGS:
+    raise ValueError(
+        f"Unknown ANNOTATION_TOOL={ANNOTATION_TOOL!r}; "
+        f"expected one of {sorted(TOOL_CONFIGS)}"
+    )
+CSV_PATH: Path = TOOL_CONFIGS[ANNOTATION_TOOL]["CSV_PATH"]
+EXCLUDED_CONSEQUENCES: set[str] = TOOL_CONFIGS[ANNOTATION_TOOL]["EXCLUDED_CONSEQUENCES"]
 # --------------------------------------------------------------------------- #
 
 
@@ -272,22 +310,25 @@ def run_for_group(
         print(f"\n  {label} ({row[GENE_COLUMN]}) — {len(gene_rows)} variant(s):")
         print(gene_rows.to_string(index=False))
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    tool_output_dir = OUTPUT_DIR / ANNOTATION_TOOL
+    tool_output_dir.mkdir(parents=True, exist_ok=True)
     top_csv = (
-        OUTPUT_DIR
-        / f"{species}_top{TOP_N}_genes_by_strain_count_{group_name}.csv"
+        tool_output_dir
+        / f"{species}_{ANNOTATION_TOOL}_top{TOP_N}_genes_by_strain_count_{group_name}.csv"
     )
     top_genes.to_csv(top_csv, index=False)
     print(f"Saved top-{TOP_N} table to: {top_csv}")
 
-    png = OUTPUT_DIR / f"{species}_gene_strain_counts_{group_name}.png"
-    plot_counts(gene_df, png, title_suffix=f"{species} | {group_name}")
+    png = tool_output_dir / f"{species}_{ANNOTATION_TOOL}_gene_strain_counts_{group_name}.png"
+    plot_counts(gene_df, png, title_suffix=f"{species} | {ANNOTATION_TOOL} | {group_name}")
 
 
 def main() -> None:
+    os.system("cls" if os.name == "nt" else "clear")
     df = load_annotation(CSV_PATH)
     filtered = filter_variants(df)
     species = infer_species(CSV_PATH)
+    print(f"Tool:                  {ANNOTATION_TOOL}")
     print(f"Species:               {species}")
     print(f"Total rows:            {len(df)}")
     print(f"After filtering:       {len(filtered)}")
