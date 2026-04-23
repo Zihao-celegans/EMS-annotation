@@ -19,8 +19,8 @@ import pandas as pd
 # CONFIG — edit these parameters as needed
 # --------------------------------------------------------------------------- #
 CSV_PATH = Path(
-    r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_elegans"
-    r"\c_elegans.vep.EMS_annotation.csv"
+    r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets\c_briggsae"
+    r"\c_briggsae.csq.EMS_annotation.csv"
 )
 STRAIN_COLUMN = "STRAIN"
 CONSEQUENCE_COLUMN = "CONSEQUENCE"

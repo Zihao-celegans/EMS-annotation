@@ -22,59 +22,86 @@ import pandas as pd
 # --------------------------------------------------------------------------- #
 # CONFIG — edit these parameters as needed
 # --------------------------------------------------------------------------- #
-# Select which annotation tool's output to analyze. The per-tool settings below
-# (CSV path + excluded CONSEQUENCE categories) are chosen based on this value.
-ANNOTATION_TOOL = "csq"  # one of: "annovar", "csq", "vep"
+# Select which species and which annotation tool's output to analyze. The
+# per-species / per-tool settings below (CSV path, strain groups, chromosome
+# order, excluded CONSEQUENCE categories) are chosen based on these values.
+SPECIES = "c_briggsae"          # one of the keys of SPECIES_CONFIGS below
+ANNOTATION_TOOL = "csq"         # one of: "annovar", "csq", "vep"
 
-# --- Tool-specific parameter blocks ---------------------------------------- #
-# Each block only overrides parameters that differ between tools; shared
-# parameters (strain groups, TOP_N, chromosome order, column names, etc.) are
-# defined once below.
-TOOL_CONFIGS: dict[str, dict] = {
+DATASETS_ROOT = Path(
+    r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets"
+)
+
+# --- Tool-specific excluded CONSEQUENCE vocabularies ---------------------- #
+# Each tool uses a different consequence vocabulary; non-coding / regulatory
+# categories are excluded so only coding-impacting variants are counted.
+TOOL_EXCLUDED_CONSEQUENCES: dict[str, set[str]] = {
+    # ANNOVAR CONSEQUENCE vocabulary.
     "annovar": {
-        "CSV_PATH": Path(
-            r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets"
-            r"\c_elegans\c_elegans.annovar.EMS_annotation.csv"
-        ),
-        # ANNOVAR CONSEQUENCE vocabulary: exclude non-coding / regulatory.
-        "EXCLUDED_CONSEQUENCES": {
-            "intergenic", "upstream", "downstream", "intronic",
-        },
+        "intergenic", "upstream", "downstream", "intronic",
     },
+    # bcftools/csq CONSEQUENCE vocabulary: uses "intron" (no "ic"), has no
+    # "intergenic/upstream/downstream" labels, and adds UTR / "non_coding"
+    # categories.
     "csq": {
-        "CSV_PATH": Path(
-            r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets"
-            r"\c_elegans\c_elegans.csq.EMS_annotation.csv"
-        ),
-        # bcftools/csq CONSEQUENCE vocabulary: exclude non-coding / UTR / intronic.
-        # Note: csq uses "intron" (no "ic"), has no "intergenic/upstream/downstream"
-        # labels, and adds UTR and "non_coding" categories.
-        "EXCLUDED_CONSEQUENCES": {
-            "nan", "intron", "non_coding", "@13746900",
-        },
+        "nan", "intron", "non_coding", "@13746900",
     },
+    # Ensembl VEP CONSEQUENCE vocabulary (SO terms, "_variant" suffixed).
+    # Excludes intergenic, up/downstream, intronic, UTR, and non-coding
+    # transcript categories (including composite labels joined by '&').
     "vep": {
-        "CSV_PATH": Path(
-            r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\datasets"
-            r"\c_elegans\c_elegans.vep.EMS_annotation.csv"
-        ),
-        # Ensembl VEP CONSEQUENCE vocabulary (SO terms, "_variant" suffixed).
-        # Exclude intergenic, up/downstream, intronic, UTR, and non-coding
-        # transcript categories (including composite labels joined by '&').
-        "EXCLUDED_CONSEQUENCES": {
-            "intergenic_variant",
-            "upstream_gene_variant",
-            "downstream_gene_variant",
-            "intron_variant",
-            "intron_variant&non_coding_transcript_variant",
-            "splice_polypyrimidine_tract_variant&intron_variant",
-            "splice_region_variant&intron_variant",
-            "splice_donor_region_variant&intron_variant",
-            "splice_donor_5th_base_variant&intron_variant",
-            "non_coding_transcript_exon_variant",
-            "splice_region_variant&non_coding_transcript_exon_variant",
-            "splice_donor_region_variant&non_coding_transcript_exon_variant",
+        "intergenic_variant",
+        "upstream_gene_variant",
+        "downstream_gene_variant",
+        "intron_variant",
+        "intron_variant&non_coding_transcript_variant",
+        "splice_polypyrimidine_tract_variant&intron_variant",
+        "splice_region_variant&intron_variant",
+        "splice_donor_region_variant&intron_variant",
+        "splice_donor_5th_base_variant&intron_variant",
+        "non_coding_transcript_exon_variant",
+        "splice_region_variant&non_coding_transcript_exon_variant",
+        "splice_donor_region_variant&non_coding_transcript_exon_variant",
+    },
+}
+
+# --- Species-specific parameter blocks ------------------------------------ #
+# Each species block defines which annotation tools are available (CSV paths),
+# the strain groups used for per-screen reporting, and the chromosome order.
+#
+# STRAIN_GROUPS may be set to the sentinel string "auto", which means: derive
+# a single group named "all" from all strain IDs present in the CSV.
+SPECIES_CONFIGS: dict[str, dict] = {
+    "c_elegans": {
+        "CSV_PATHS": {
+            tool: DATASETS_ROOT / "c_elegans" / f"c_elegans.{tool}.EMS_annotation.csv"
+            for tool in ("annovar", "csq", "vep")
         },
+        # Strain groups by drug screen. Per-screen results are written separately.
+        "STRAIN_GROUPS": {
+            "Kelleher": [
+                "ECA4365", "ECA4366", "ECA4367", "ECA4368", "ECA4369",
+                "ECA4370", "ECA4371", "ECA4372", "ECA4373",
+            ],
+            "ABZ": [
+                "ECA4236", "ECA4237", "ECA4238", "ECA4239", "ECA4240", "ECA4241",
+                "ECA4242", "ECA4243", "ECA4244", "ECA4245", "ECA4246",
+            ],
+        },
+        "CHROM_ORDER": ["I", "II", "III", "IV", "V", "X", "MtDNA"],
+        # Two independent screens -> detect variants common to both as background.
+        "FILTER_BACKGROUND": True,
+    },
+    "c_briggsae": {
+        "CSV_PATHS": {
+            "csq": DATASETS_ROOT / "c_briggsae" / "c_briggsae.csq.EMS_annotation.csv",
+        },
+        # Only a single strain group: use every strain present in the CSV.
+        "STRAIN_GROUPS": "auto",
+        "CHROM_ORDER": ["I", "II", "III", "IV", "V", "X", "MtDNA"],
+        # Only one strain group -> cross-screen background detection is not
+        # meaningful, so disable the background-variant filter entirely.
+        "FILTER_BACKGROUND": False,
     },
 }
 
@@ -82,24 +109,9 @@ TOOL_CONFIGS: dict[str, dict] = {
 OUTPUT_DIR = Path(r"C:\Users\jl200\Dropbox\JHU_2026_spring\EMS_annotation\analysis")
 TOP_N = 10
 
-# Strain groups by drug screen. Per-screen results are written separately.
-STRAIN_GROUPS: dict[str, list[str]] = {
-    "Kelleher": [
-        "ECA4365", "ECA4366", "ECA4367", "ECA4368", "ECA4369",
-        "ECA4370", "ECA4371", "ECA4372", "ECA4373",
-    ],
-    "ABZ": [
-        "ECA4236", "ECA4237", "ECA4238", "ECA4239", "ECA4240", "ECA4241",
-        "ECA4242", "ECA4243", "ECA4244", "ECA4245", "ECA4246",
-    ],
-}
-
 # Drop variants that appear in more than this fraction of strains in EVERY
 # strain group (likely background variants rather than screen-specific hits).
 BACKGROUND_FRAC_THRESHOLD = 0.8
-
-# C. elegans chromosome ordering for x-axis placement
-CHROM_ORDER = ["I", "II", "III", "IV", "V", "X", "MtDNA"]
 
 STRAIN_COLUMN = "STRAIN"
 GENE_COLUMN = "WBGENE"
@@ -109,14 +121,27 @@ CHROM_COLUMN = "CHROM"
 POS_COLUMN = "POS"
 POSSIBLE_EMS_COLUMN = "possible_EMS"
 
-# Resolve active tool-specific settings.
-if ANNOTATION_TOOL not in TOOL_CONFIGS:
+# Resolve active species-/tool-specific settings.
+if SPECIES not in SPECIES_CONFIGS:
+    raise ValueError(
+        f"Unknown SPECIES={SPECIES!r}; expected one of {sorted(SPECIES_CONFIGS)}"
+    )
+_species_cfg = SPECIES_CONFIGS[SPECIES]
+if ANNOTATION_TOOL not in _species_cfg["CSV_PATHS"]:
+    raise ValueError(
+        f"Annotation tool {ANNOTATION_TOOL!r} is not configured for species "
+        f"{SPECIES!r}; available: {sorted(_species_cfg['CSV_PATHS'])}"
+    )
+if ANNOTATION_TOOL not in TOOL_EXCLUDED_CONSEQUENCES:
     raise ValueError(
         f"Unknown ANNOTATION_TOOL={ANNOTATION_TOOL!r}; "
-        f"expected one of {sorted(TOOL_CONFIGS)}"
+        f"expected one of {sorted(TOOL_EXCLUDED_CONSEQUENCES)}"
     )
-CSV_PATH: Path = TOOL_CONFIGS[ANNOTATION_TOOL]["CSV_PATH"]
-EXCLUDED_CONSEQUENCES: set[str] = TOOL_CONFIGS[ANNOTATION_TOOL]["EXCLUDED_CONSEQUENCES"]
+CSV_PATH: Path = _species_cfg["CSV_PATHS"][ANNOTATION_TOOL]
+EXCLUDED_CONSEQUENCES: set[str] = TOOL_EXCLUDED_CONSEQUENCES[ANNOTATION_TOOL]
+STRAIN_GROUPS_CFG = _species_cfg["STRAIN_GROUPS"]
+CHROM_ORDER: list[str] = _species_cfg["CHROM_ORDER"]
+FILTER_BACKGROUND: bool = _species_cfg.get("FILTER_BACKGROUND", True)
 # --------------------------------------------------------------------------- #
 
 
@@ -333,7 +358,7 @@ def run_for_group(
         print(f"\n  {label} ({row[GENE_COLUMN]}) — {len(gene_rows)} variant(s):")
         print(gene_rows.to_string(index=False))
 
-    tool_output_dir = OUTPUT_DIR / ANNOTATION_TOOL
+    tool_output_dir = OUTPUT_DIR / species / ANNOTATION_TOOL
     tool_output_dir.mkdir(parents=True, exist_ok=True)
     top_csv = (
         tool_output_dir
@@ -346,20 +371,44 @@ def run_for_group(
     plot_counts(gene_df, png, title_suffix=f"{species} | {ANNOTATION_TOOL} | {group_name}")
 
 
+def _resolve_strain_groups(
+    cfg: dict | str, df: pd.DataFrame
+) -> dict[str, list[str]]:
+    """Resolve STRAIN_GROUPS config to a concrete mapping.
+
+    If ``cfg == "auto"``, derive a single group named ``"all"`` containing
+    every unique strain ID present in ``df[STRAIN_COLUMN]``.
+    """
+    if cfg == "auto":
+        strains: set[str] = set()
+        for cell in df[STRAIN_COLUMN].dropna():
+            strains.update(_split_strains(cell))
+        return {"all": sorted(strains)}
+    return dict(cfg)
+
+
 def main() -> None:
     os.system("cls" if os.name == "nt" else "clear")
     df = load_annotation(CSV_PATH)
     filtered = filter_variants(df)
     species = infer_species(CSV_PATH)
+    strain_groups = _resolve_strain_groups(STRAIN_GROUPS_CFG, df)
+    print(f"Species:               {species} (config: {SPECIES})")
     print(f"Tool:                  {ANNOTATION_TOOL}")
-    print(f"Species:               {species}")
     print(f"Total rows:            {len(df)}")
     print(f"After filtering:       {len(filtered)}")
+    print(
+        f"Strain groups:         "
+        + ", ".join(f"{n} (n={len(s)})" for n, s in strain_groups.items())
+    )
 
-    filtered = drop_background_variants(filtered, STRAIN_GROUPS)
-    print(f"After background drop: {len(filtered)}")
+    if FILTER_BACKGROUND:
+        filtered = drop_background_variants(filtered, strain_groups)
+        print(f"After background drop: {len(filtered)}")
+    else:
+        print("Background filter: disabled for this species (single strain group).")
 
-    for group_name, group_strains in STRAIN_GROUPS.items():
+    for group_name, group_strains in strain_groups.items():
         run_for_group(filtered, group_name, group_strains, species)
 
     plt.show()
